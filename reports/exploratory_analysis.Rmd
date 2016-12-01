@@ -1,0 +1,250 @@
+---
+title: Exploratory Analysis in preparation of building a Natural Language Processing
+  model
+author: "Hugo van den Berg"
+date: "November 27, 2016"
+output:
+    html_document:
+        theme: cerulean
+        toc: true
+        toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::read_chunk('../data-raw/download.data.R')
+```
+
+```{r libraries, message=FALSE, warning=FALSE}
+# library(readr) # v1.0.0
+
+library(magrittr) # v1.5
+# library(plyr) # 1.8.4
+library(dplyr) # v0.5.0
+library(tidyr) # v0.6.0
+# library(lubridate) # v1.6.0
+
+library(stringr) # v1.1.0
+library(stringi) # v1.1.2
+library(tm) # v0.6-2
+
+library(ggplot2) # v2.2.0
+library(plotly) # v4.5.6
+```
+
+```{r load_data}
+en.source <- DirSource('../data-raw/final/en_US',
+                       pattern = 'en.*\\.txt',
+                       encoding = 'UTF-8')
+en.corpus <- VCorpus(en.source, readerControl = list(language = 'en'))
+```
+
+```{r summarise_data}
+words <- lapply(en.corpus, function(x)stri_extract_all_words(x$content))
+en.corpus.summary <- data.frame(
+    documents = sapply(en.corpus, function(x)length(x$content)),
+    source_size = sapply(en.corpus, function(x)format(object.size(x), units = 'Mb')),
+    word_count = sapply(words, function(x)length(unlist(x))),
+    unique_words = sapply(words, function(x)length(unique(unlist(x)))),
+    average_words = sapply(words, function(x)mean(sapply(x, length)))
+)
+names(en.corpus.summary) <- c('Number of documents', 'Source size',
+                              'Number of words', 'Number of unique words',
+                              'Average words per document')
+```
+
+```{r clean_data}
+set.seed(2016-11-27)
+# Subset each source to 20000 lines
+for (s in seq_along(en.corpus)) {
+    en.corpus[[s]]$content %<>% sample(size = min(length(.), 20000))
+}
+
+# define function to remove substrings using regular expressions
+removePattern <- content_transformer(function(x, pattern)gsub(pattern, ' ', x, perl = T))
+
+en.corpus %<>%
+    tm_map(content_transformer(tolower)) %>%
+    # Remove urls
+    tm_map(removePattern, '(https?|ftp)://(\\w+[\\.|/?&=#-]*)+') %>%
+    # Remove mentions, retweets, etc.
+    tm_map(removePattern, '((rt|/?via)( |:)*)?(@\\w+)?(#\\w+)') %>%
+    tm_map(removeWords, stopwords('en')) %>%
+    tm_map(removeNumbers) %>%
+    tm_map(removePunctuation)
+```
+
+```{r dtm}
+en.dtm <- as.list(seq_along(en.corpus))
+en.freqs <- as.list(seq_along(en.corpus))
+for (k in seq_along(en.corpus)) {
+    en.dtm[[k]] <- DocumentTermMatrix(VCorpus(VectorSource(en.corpus[[k]]$content)))
+    en.dtm[[k]] %<>% removeSparseTerms(.99)
+    en.freqs[[k]] <- sort(colSums(as.matrix(en.dtm[[k]])), decreasing = TRUE)
+}
+names(en.dtm) <- names(en.corpus)
+names(en.freqs) <- names(en.corpus)
+
+freqs <- data.frame(freq = unlist(en.freqs, use.names = T))
+freqs %<>%
+    mutate(
+        name = row.names(.)
+    ) %>%
+    separate(
+        col = name,
+        into = c('language', 'source', 'filetype', 'word'),
+        sep = '\\.'
+    ) %>%
+    select(
+        -filetype
+    )
+```
+
+```{r setup2, include=FALSE}
+## Set new options to display previous code chunks but never evaluate them
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+## Executive summary
+
+On three sets of English texts (blog posts, news articles and Twitter messages)
+a first analysis was performed to extract some basic characteristics of the
+language.
+Given the different limitations set on texts from each category these
+characteristics are separated into three classes.
+
+The words that occur in all top ten lists per source are the following:
+```{r eval=TRUE, echo=FALSE}
+freqs %>% filter(word %in% intersect(intersect(names(en.freqs[[1]][1:10]), names(en.freqs[[2]][1:10])), names(en.freqs[[3]][1:10]))) %>% spread(source, freq) %>% select(-language) %>% knitr::kable()
+```
+
+The next steps to take after this first exploration are:
+
+  - Building an n-gram frequency matrix
+  - Building a prediction model for the n-grams based on (n-1)-grams
+  - Building an interface to the prediction model
+
+## Introduction
+This report is part of a project to build a Natural Language Processing model
+to predict words for autocompletion of sentences.
+Before this model can be built we need an overview of the basic characteristics
+of the language, in this case we will focus on the English language.
+The characteristics are drawn from a dataset containing blog posts, news
+articles, and Twitter messages.
+
+## Data
+For this first exploration only the texts in the English language are
+considered (see [Getting the data](#getting-the-data) for more information how
+the data was retreived).
+The data is loaded into a corpus containing a source for each file, which in
+turn contain one document per line.
+
+```{r load_data}
+```
+
+A small summary of the sources is given below:
+```{r summarise_data}
+```
+```{r print_data_summary, eval=TRUE}
+knitr::kable(en.corpus.summary)
+```
+
+Before a meaningful analysis can be performed some cleaning up of the dataset
+is necessary.
+The following methods are applied (in order)
+
+  1. Subset to 20000 random documents from each source (or less if not enough
+        in source)
+  1. Convert words to lower case
+  3. Remove URLs, hashtags, retweets, mentions, etc.
+  2. Remove stopwords (a, an, the, ...)
+  3. Remove numbers and punctuation
+
+```{r clean_data}
+```
+
+## Word frequencies
+To get the most frequently used words from the dataset we construct
+DocumentTermMatrices.
+These contain a column per unique word and a row per document, with on each
+intersection the number of times the word occurs in the document.
+
+```{r dtm}
+```
+
+Subsequently we can plot those frequencies, in this case a three barplots.
+By using a single x-axis we can compare frequencies between the different types
+of document (hover the mouse to find the word and exact frequency).
+```{r plot_frequencies, eval=TRUE}
+ggplotly(
+    freqs %>%
+        ggplot(aes(word, freq)) +
+        geom_bar(stat = 'identity') +
+        facet_grid(source ~ language) +
+        theme(axis.text.x = element_text(angle = 90, hjust = 1))
+)
+```
+
+We can also split the three graphs and plot the data ordered by occurrence:
+```{r plot_frequencies_occ, eval=TRUE}
+ggplotly(
+    freqs %>%
+        filter(
+            source == 'blogs'
+        ) %>%
+        ggplot(aes(reorder(word, -freq), freq)) +
+        geom_bar(stat = 'identity') +
+        theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+        labs(x = 'Word', y = 'Frequency', title = 'Word frequency in blog posts') +
+        coord_cartesian(ylim = c(0, max(freqs$freq)))
+)
+ggplotly(
+    freqs %>%
+        filter(
+            source == 'news'
+        ) %>%
+        ggplot(aes(reorder(word, -freq), freq)) +
+        geom_bar(stat = 'identity') +
+        theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+        labs(x = 'Word', y = 'Frequency', title = 'Word frequency in news') +
+        coord_cartesian(ylim = c(0, max(freqs$freq)))
+)
+ggplotly(
+    freqs %>%
+        filter(
+            source == 'twitter'
+        ) %>%
+        ggplot(aes(reorder(word, -freq), freq)) +
+        geom_bar(stat = 'identity') +
+        theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+        labs(x = 'Word', y = 'Frequency', title = 'Word frequency in tweets') +
+        coord_cartesian(ylim = c(0, max(freqs$freq)))
+)
+```
+
+Finally, we can also list the top ten words per source:
+```{r top_ten_blogs, eval=TRUE}
+knitr::kable(en.freqs[[1]][1:10], col.names = 'Frequency in blogs')
+knitr::kable(en.freqs[[2]][1:10], col.names = 'Frequency in news')
+knitr::kable(en.freqs[[3]][1:10], col.names = 'Frequency in tweets')
+```
+
+## Conclusion
+From this analysis it is clear that the word frequency distributions show
+similar shapes.
+However the total frequency differs vastly, especially for tweets.
+It is not surprising tweets have less words given the limitations on the
+message length.
+
+## Appendices
+
+### Getting the data
+
+```{r getting_data}
+```
+
+### Libraries
+The following libraries were used in this analysis.
+
+```{r libraries}
+```
