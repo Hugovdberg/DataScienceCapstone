@@ -1,5 +1,8 @@
+options(mc.cores = 1)
+options(encoding = 'UTF-8')
+
 library('ProjectTemplate')
-reload.project(list(data_loading = FALSE))
+reload.project()
 
 # de.Tweets.source <- VectorSource(de.DE.twitter)
 # de.Tweets.corpus <- VCorpus(de.Tweets.source)
@@ -30,10 +33,10 @@ if (!file.exists(corpus.file)) {
 #                               'Average words per document')
 
 ## ----- clean_data
-set.seed(2016-12-01)
+set.seed(2016 - 12 - 03)
 # Subset each source to 20000 lines
 for (s in seq_along(en.corpus)) {
-    en.corpus[[s]]$content %<>% sample(size = min(length(.), 50000))
+    en.corpus[[s]]$content %<>% sample(size = min(length(.), 20000))
 }
 
 # define function to remove substrings using regular expressions
@@ -50,15 +53,15 @@ en.corpus %<>%
     tm_map(removePunctuation)
 
 ## ----- dtm
-en.dtm <- as.list(seq_along(en.corpus))
-en.freqs <- as.list(seq_along(en.corpus))
-for (k in seq_along(en.corpus)) {
-    en.dtm[[k]] <- DocumentTermMatrix(VCorpus(VectorSource(en.corpus[[k]]$content)))
-    en.dtm[[k]] %<>% removeSparseTerms(.999)
-    en.freqs[[k]] <- sort(colSums(as.matrix(en.dtm[[k]])), decreasing = TRUE)
-}
-names(en.dtm) <- names(en.corpus)
-names(en.freqs) <- names(en.corpus)
+# en.dtm <- as.list(seq_along(en.corpus))
+# en.freqs <- as.list(seq_along(en.corpus))
+# for (k in seq_along(en.corpus)) {
+#     en.dtm[[k]] <- DocumentTermMatrix(VCorpus(VectorSource(en.corpus[[k]]$content)))
+#     en.dtm[[k]] %<>% removeSparseTerms(.999)
+#     en.freqs[[k]] <- sort(colSums(as.matrix(en.dtm[[k]])), decreasing = TRUE)
+# }
+# names(en.dtm) <- names(en.corpus)
+# names(en.freqs) <- names(en.corpus)
 
 # freqs <- data.frame(freq = unlist(en.freqs, use.names = T))
 # freqs %<>%
@@ -75,14 +78,30 @@ names(en.freqs) <- names(en.corpus)
 #     )
 
 ## ------------------------ n-grams
-bigram.tokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+bigram.tokenizer <- function(x) RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 2, max = 2))
+trigram.tokenizer <- function(x) RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 3, max = 3))
+quadgram.tokenizer <- function(x) RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 4, max = 4))
+uni.quadgram.tokenizer <- function(x) RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 1, max = 4))
 
-en.corpus2 <- en.corpus %>%
-    lapply(function(x)x$content) %>%
-    unlist %>%
-    VectorSource %>%
-    VCorpus
-en.dtm <- en.corpus2 %>%
-    DocumentTermMatrix
-en.dtm.bi <- en.corpus2 %>%
-    DocumentTermMatrix(control = list(tokenizer = bigram.tokenizer))
+# en.corpus2 <- en.corpus %>%
+#     lapply(function(x)x$content) %>%
+#     unlist %>%
+#     VectorSource %>%
+#     VCorpus
+# dtm <- en.corpus %>%
+#     DocumentTermMatrix
+# dtm.bi <- en.corpus %>%
+#     DocumentTermMatrix(control = list(tokenizer = bigram.tokenizer))
+# dtm.tri <- en.corpus %>%
+#     DocumentTermMatrix(control = list(tokenizer = trigram.tokenizer))
+# dtm.quad <- en.corpus %>%
+#     DocumentTermMatrix(control = list(tokenizer = quadgram.tokenizer))
+dtm.uni.quad <- en.corpus %>%
+    DocumentTermMatrix(control = list(tokenizer = uni.quadgram.tokenizer))
+
+freqs <- colSums(as.matrix(dtm.uni.quad))
+quadgrams <- data.frame(quads = colnames(dtm.uni.quad))
+quadgrams %<>%
+    separate(quads, c("one", "two", "three", "four"), sep = " ", fill = "left") %>%
+    unite(trigram, -four, sep = " ")
+qmod <- quadgrams %>% lm(four~trigram, ., weights = freqs)

@@ -1,5 +1,5 @@
 version: 0.7
-data_loading: TRUE
+data_loading: FALSE
 data_ignore: Thumbs.db, /^\./
 cache_loading: TRUE
 recursive_loading: FALSE
@@ -7,7 +7,7 @@ munging: TRUE
 logging: FALSE
 logging_level: INFO
 load_libraries: TRUE
-libraries: magrittr, reshape, plyr, dplyr, tidyr, ggplot2, stringr, lubridate, tm, qdap, stringi, RWeka
+libraries: magrittr, reshape, plyr, dplyr, tidyr, ggplot2, stringr, lubridate, tm, qdap, stringi
 as_factors: FALSE
 data_tables: FALSE
 attach_internal_libraries: FALSE

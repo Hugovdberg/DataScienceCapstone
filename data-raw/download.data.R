@@ -2,7 +2,7 @@
 options(encoding = 'UTF-8')
 library(tm)
 
-use.sample <- TRUE
+use.sample <- FALSE
 set.seed(2016-11-27)
 sample.lines <- 20000
 
